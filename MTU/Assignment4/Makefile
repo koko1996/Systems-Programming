@@ -12,4 +12,4 @@ compute.o : compute.c
 
 .PHONY : clean
 clean :
-	-rm main main.o compute compute.o
+	-rm -f main main.o compute compute.o
