@@ -63,7 +63,7 @@ int main(int argc, char **argv){
 
 	// clean up allocated memory
 	free(data);
-
+	free(threads);
 	return 0;
 }
 
