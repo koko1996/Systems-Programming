@@ -1,146 +1,50 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <pthread.h>
-#include <unistd.h>
-#include <semaphore.h>
-
-sem_t mother_st; // mother eagles
-sem_t waking_up; // mutex for waking up the mother
-sem_t filled_pots; // number of pots that are full (no baby eagle touched it yet)
-sem_t busy_pots; // number of pots that is occupied by the baby eagles (they are still eating)
-sem_t can_eat; // baby eagles wait until mother fills up all the pots
-
-long babyWaker;
-
-int NUM_THREADS;
-int n;
-int retired;
-
-
-void mother_goto_sleep(){
-	printf("Mother eagle takes a nap.\n");
-	sem_wait (&mother_st);
-}
-
-void food_ready(int t){
-	printf("Mother eagle says \"Feeding (%d)\".\n",t);
-}
-
-
-void finish_eating(long id){
-	int value3;
-	sem_wait(&can_eat);	
-	sem_getvalue(&busy_pots, &value3);
-	if (value3 <= 0){
-		printf("%*cBaby eagle %d exited.\n",id,' ',id);
-		sem_post(&can_eat);
-		pthread_exit(0);	
-	}
-	printf("%*cBaby eagle %d is starts eating.\n",id,' ',id);
-	sem_wait (&busy_pots);
-	sem_post(&can_eat);
-	printf("%*cBaby eagle %d finishes eating.\n",id,' ',id);
-}
-
-void ready_to_eat(long id){
-	int value1;
-	int value2;	
-	int value3;
-	printf("%*cBaby eagle %d is ready to eat.\n",id,' ',id);
-	sem_wait(&waking_up);
-	sem_getvalue(&busy_pots, &value1);
-	sem_getvalue(&mother_st, &value2);
-	sem_getvalue(&waking_up, &value3);
-//	printf("before value1 == %d && value2 ==%d && value3=%d && retired ==%d.\n",value1, value2,value3, retired);
-	if (value1 == 0 && value2 ==0 && retired ==0){
-		printf("Baby eagle %d sees all feeding pots are empty and wakes up the mother.\n",id);
-		babyWaker = id;
-		sem_post(&mother_st);
-		sem_getvalue(&mother_st, &value2);
-//		printf("after value1 == %d && value2 ==%d && retired ==%d.\n",value1, value2, retired);
-	}
-	sem_post(&waking_up);
-	sem_wait(&filled_pots);
-}
-
-void *baby_eagle(void * baby_id) {
-	long id = (long) baby_id;
-	printf("%*cBaby eagle %d started.\n",id,' ',id);
-	while (1) {              
-		sleep(2);            // play for a while     
-		ready_to_eat(id);  // get hungry          
-		sleep(2);            // eat for a while     
-		finish_eating(id); // finish eating       
-	}
-}
-
-void *mother_eagle(void *t_times) {
-	printf("Mother eagle started.\n");
-	long t;
-	t = (long) t_times;
-	int i=1;
-	int temp;
-	while (i <= t) {            
-		mother_goto_sleep();    // take a nap
-         	printf("Mother eagle woken up by baby eagle %d.\n",babyWaker);
-		sem_wait(&can_eat);
-		temp=0;
-		while(temp<n){
-			sem_post (&filled_pots);
-			sem_post (&busy_pots);
-			temp++;
-		}
-		sleep(1);      
-		food_ready(i);    // make food available
-		sem_post(&can_eat);
-	//	sleep(5);            // do something else  
-		i++;
-	}
-	
-	retired =1;
-	printf("Mother eagle retired Game Over\n");
-	for (i = 1; i < NUM_THREADS; i++) {
-		sem_post (&filled_pots);
-	}
-	
-	
-}
+#include "prog2.h"
 
 int main(int argc, char **argv){
-	int m=4;
-	n=2;
-	long t=2;	
-	if (argc == 4){
-		m=atoi(argv[1]);
-		n=atoi(argv[2]);
-		t=atoi(argv[3]);
-	}
-	sem_init(&mother_st, 0, 0);
-	sem_init(&filled_pots, 0, 0);
-	sem_init(&busy_pots, 0, 0);
-	sem_init(&can_eat, 0, 1);
-	sem_init(&waking_up, 0, 1);	
-	retired=0;
 
-	printf("MAIN: There are %d baby eagles, %d feeding pots, and %d feedings.\n",m ,n ,t);
+	////////////////////////////////////////////////////////////////////////////////////////////////
+	//////////////////////////////////////// Set Up ////////////////////////////////////////////////
+	
+	long number_of_baby_eagles=10;				// Number of eagles 	
+	long number_of_feedings=10;					// Number of time mother will fill the feeding pots
+	long number_of_pots=10;						// Number of feeding pots available
+
+	if (argc == 4){
+		number_of_pots= atoi(argv[1])==0 ? 10 : atoi(argv[1]); 			 
+		number_of_baby_eagles= atoi(argv[2])==0 ? 10 : atoi(argv[2]); 			
+		number_of_feedings= atoi(argv[3])==0 ? 10 : atoi(argv[3]);	 		
+	}
+
+	sem_init(&mother_st, 0, 0);				// initialzie mother status to zero meaning mother is asleep
+	sem_init(&full_pots, 0, 0);				// initialzie number of full feeding pots to zero
+	sem_init(&non_empty_pots, 0, 0);		// initialzie number of non-empty feeding pots to zero
+	sem_init(&can_eat, 0, 0);				// initialzie grant of eating from pots to zero
+	sem_init(&waking_up, 0, 1);				// initialzie the grant of waking up mother eagle to one hence the first eagle that gets to this semaphore will be able to wake of the mother eagle
+
+	printf("MAIN: There are %d baby eagles, %d feeding pots, and %d feedings.\n",number_of_baby_eagles ,number_of_pots ,number_of_feedings);
 	printf("MAIN: Game starts!!!!!\n");
 
-	////////////////////////////////////////////////////////////////////////////////////////////////
-	///////////////////////////////////////////////////////////////////////////////////////////////////////
-	////////////////////////////////////////////////////////////////////////////////////////////////
+	retired=0;								// initialize the mother to not yet retired
+	int rc;									// integer for error code return
+	long i;									// integer used in loops
+	int total_eagles = number_of_baby_eagles + 1;	// total number of eagles (mother and baby)
+	pthread_t * threads = (pthread_t *)malloc(sizeof(pthread_t) *total_eagles);	// array to hold thread ids
 	
-	int rc;
-	NUM_THREADS= m + 1;
-	pthread_t * threads = (pthread_t *)malloc(sizeof(pthread_t) *NUM_THREADS);
+	struct input_data *data = (struct input_data *)malloc(sizeof(struct input_data)); // struct to hold the data passed to mother eagle
+	data->number_of_feedings = number_of_feedings;
+	data->number_of_pots = number_of_pots;
+	
+	////////////////////////////////////////////////////////////////////////////////////////////////
+	//////////////////////////////////// Start the Game ////////////////////////////////////////////
+
 	printf("In main: creating Mother eagle thread %ld\n", 0);
-	rc = pthread_create(threads + 0, NULL, mother_eagle, (void *) t);
+	rc = pthread_create(threads + 0, NULL, mother_eagle, (void *) data);
 	if (rc) {
 		printf("ERROR; return code from pthread_create() is %d\n", rc);
 		exit(-1);
 	}
 
-	long i;
-	for (i = 1; i < NUM_THREADS; i++) {
+	for (i = 1; i < total_eagles; i++) {
 		printf("In main: creating baby eagle thread %ld\n", i);
 		rc = pthread_create(threads + i, NULL, baby_eagle, (void *) i);
 		if (rc) {
@@ -149,22 +53,16 @@ int main(int argc, char **argv){
 		}
 	}
 
-	int value1;
-	sem_getvalue(&filled_pots, &value1);
-	while (value1>0 || retired==0) {     
-	
-		sem_getvalue(&filled_pots, &value1);
-	}
-	////////////////////////////////////////////////////////////////////////////////////////////////
-	///////////////////////////////////////////////////////////////////////////////////////////////////////
-	////////////////////////////////////////////////////////////////////////////////////////////////
+	///////////////////////////////////////////////////////////////////////////////////////////////
+	//////////////////////////////////////  Clean up  /////////////////////////////////////////////
 
-	/* wait for all threads to complete */
-	for (i = 0; i < NUM_THREADS; i++) {
+	// wait for all threads to complete 
+	for (i = 0; i < total_eagles; i++) {
 		pthread_join(threads[i], NULL);
-		printf("Thread %d is done\n",i);
 	}
-	printf("After Thread\n");
+
+	// clean up allocated memory
+	free(data);
 
 	return 0;
 }
