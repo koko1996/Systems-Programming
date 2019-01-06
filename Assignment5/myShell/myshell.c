@@ -28,7 +28,7 @@ char * last_string(char **arr);
 char * get_redirection_file_name(char **arr, int t);
 void truncate_array(char **arr,int t);
 
-main() {
+int main() {
   char **args; 
   char *last;  
   char *name;
@@ -36,7 +36,8 @@ main() {
   int length;
   int dir;
   signal(SIGCHLD, handle_sigchld);
-  while(1) {
+  
+  while(1) {	  
     length =0;
     dir=0;
     wait=1;
