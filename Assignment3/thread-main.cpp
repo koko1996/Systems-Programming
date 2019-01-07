@@ -4,10 +4,9 @@ int main(int argc, char **argv){
 
 	////////////////////////////////////////////////////////////////////////////////////////////////
 	//////////////////////////////////////// Set Up ////////////////////////////////////////////////
-	long total_threads;
 	const long number_of_boats=1;			
-	long number_of_cannibals=2;				
-	long number_of_missionaries=2;			
+	long number_of_cannibals=8;				
+	long number_of_missionaries=8;			
 	long number_of_safe_boat_loads=5;		
 
 	if (argc == 4){
@@ -16,7 +15,7 @@ int main(int argc, char **argv){
 		number_of_safe_boat_loads= atoi(argv[3])==0 ? 5 : atoi(argv[3]);	 		
     }
 
-    total_threads = number_of_boats + number_of_cannibals + number_of_missionaries;
+	long total_threads = number_of_boats + number_of_cannibals + number_of_missionaries;
 	
     pthread_t * threads = (pthread_t *)malloc(sizeof(pthread_t) * total_threads); // array to hold thread ids
 	int rc; // integer for error code return
@@ -25,7 +24,7 @@ int main(int argc, char **argv){
 	////////////////////////////////////////////////////////////////////////////////////////////////
 	//////////////////////////////////// Create threads ////////////////////////////////////////////
 
-	printf("In main: creating Boat thread %ld\n", 0);
+	// In main: creating Boat thread 
 	rc = pthread_create(threads + 0, NULL, boat, (void *) number_of_safe_boat_loads);
 	if (rc) {
 		printf("ERROR; return code from pthread_create() is %d\n", rc);
@@ -33,7 +32,7 @@ int main(int argc, char **argv){
 	}
 
 	for (i = 1; i <= number_of_cannibals; i++) {  // number_of_boats = 1 by default
-		printf("In main: creating Cannibal thread %ld\n", i );
+		// In main: creating Cannibal threads
 		rc = pthread_create(threads + i , NULL, cannibal, (void *) i);
 		if (rc) {
 			printf("ERROR; return code from pthread_create() is %d\n", rc);
@@ -42,7 +41,7 @@ int main(int argc, char **argv){
     }
 
 	for (i = 1; i <= number_of_missionaries; i++) {
-		printf("In main: creating Missionaries thread %ld\n", number_of_cannibals + i );
+		// In main: creating Missionary threads
 		rc = pthread_create(threads + number_of_cannibals + i , NULL, missionary, (void *) i);
 		if (rc) {
 			printf("ERROR; return code from pthread_create() is %d\n", rc);

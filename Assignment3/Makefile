@@ -1,9 +1,12 @@
-prog3: thread-main.cpp thread.o
-	gcc -pthread -o  prog3 thread-main.cpp thread.o
+prog3: thread-main.cpp thread.o boat-monitor.o
+	g++ -pthread -o  prog3 thread-main.cpp thread.o boat-monitor.o
 
 thread.o : thread.cpp thread.h
-	gcc -c thread.cpp
+	g++ -pthread -c thread.cpp
+
+boat-monitor.o : boat-monitor.cpp boat-monitor.h
+	g++ -pthread -c boat-monitor.cpp
 
 .PHONY : clean
 clean :
-	-rm thread.o prog3
+	-rm -rf thread.o boat-monitor.o prog3
