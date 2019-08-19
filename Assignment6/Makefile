@@ -14,4 +14,4 @@ closh: closh.c
 	$(CXX) $(CXXFLAGS) -o closh closh.c 
 	
 clean: 
-	$(RM) rdgen schema.o helper.o table_defns.o columns.o dtypes.o data_helper.o
+	$(RM) closh 
