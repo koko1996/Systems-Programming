@@ -1,19 +1,24 @@
 #include "helper.hpp"
 
-// tokenize the command string into arguments - do not modify
-int readCmdTokens(char* cmd, char** cmdTokens) {
-    cmd[strlen(cmd) - 1] = '\0'; // drop trailing newline
-    int i = 0;
-    cmdTokens[i] = strtok(cmd, " "); // tokenize on spaces
-    while (cmdTokens[i++] && i < sizeof(cmdTokens)) {
-        cmdTokens[i] = strtok(NULL, " ");
+/*
+* Brief: readCmdTokens tokenizes the parameter by space and returns an array of the 
+* tokens
+*
+* Param: cmd is const string to parse
+* Returns: vector of strings where each element is a token in cmd (parameter passed)
+*/
+std::vector<std::string> readCmdTokens(const std::string& cmd) {
+    char delimeter= ' ';
+    std::stringstream ss(cmd);
+    std::string item;
+    std::vector<std::string> splitted_strings;
+    while (std::getline(ss, item, delimeter))
+    {
+        if (!std::all_of(item.begin(),item.end(),isspace)){ // check if it has more than just spaces
+            // trim the resulting string then add it to the resulting vector
+            splitted_strings.push_back(item);
+        }
+        
     }
-    return (i-1);
-}
-
-// read one character of input, then discard up to the newline - do not modify
-char readChar() {
-    char c = getchar();
-    while (getchar() != '\n');
-    return c;
+    return splitted_strings;
 }

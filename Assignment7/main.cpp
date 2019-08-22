@@ -1,123 +1,165 @@
 #include "main.hpp"
 
-/* thread function */
+/*
+* Brief: mapper_func is mapper thread function t
+*
+* Param: arg is a pointer of type map_thread_data_t
+* Returns: N/A
+*/
 void *mapper_func(void *arg) {
 
-    map_thread_data_t *data = (map_thread_data_t *)arg;
+    map_thread_data_t *data = (map_thread_data_t *)arg; // cast the argument
 
     // printf("^^^^^^^^^^^^^^^^^^^^^^ mapper_func thread id: %d, file name:%s ^^^^^^^^^^^^^^^^^^^^^^\n", data->tid,(data->file).c_str());
 
-    FILE* file = fopen((data->file).c_str(), "r"); /* should check the result */
-    char line[256];
-    long line_number = 0;
-    while (fgets(line, sizeof(line), file)) {
-        char* pos;
+    FILE* file = fopen((data->file).c_str(), "r");  // open the file
+    char line[256];                                 // buffer to read
+    long line_number = 0;                           // line number
+    while (fgets(line, sizeof(line), file)) {       
+        char* pos;                                  // remove trailing new line 
         if ((pos=strchr(line, '\n')) != NULL){
             *pos = '\0';
         }
-        /* note that fgets don't strip the terminating \n, checking its
-           presence would allow to handle lines longer that sizeof(line) */
-        data_t pd;
+
+        data_t pd;                                  // produce the object
         pd.word = line;
         pd.wi.file_name=(data->file);
         pd.wi.line_number = line_number;
-
-        buffers.append(pd);
+        std::size_t h1 = std::hash<std::string>{}(pd.word); 
+        std::size_t index = h1 % buffers.size();    // find the corresponding reducer
+        buffers[index].append(pd);                  // append the object to the reducer's buffer
         
         ++line_number;
     }
-    /* may check feof here to make a difference between eof and io failure -- network
-       timeout for instance */
+
     fclose(file);
 
+    // decrement the number of active mapper threads since this thread is done
     pthread_mutex_lock(&counter_lock);
     --sync_counter;
-    pthread_mutex_unlock(&counter_lock);
+    // if this is the last mapper thread than wake up all of the reducer threads 
+    // the reason for this is because some of the reducers might be asleep because 
+    // their Buffer is empty and there was at least one mapper when they tried to  
+    // remove an object from Buffer. Since it is possible that the last mapper thread
+    // did not put the data in the sleeping reducer thread, this reducer thread was not
+    // woken up. Hence, we need to wake up all the reducer threads to inform that the mapper
+    // threads are done.
     if (sync_counter == 0){
-        buffers.wakeUpRemovingThreads();
+        for(std::vector<Buffer<data_t>>::iterator it=buffers.begin(); it!=buffers.end(); ++it ){
+            it->wakeUpRemovingThreads();
+        }
     }
+    pthread_mutex_unlock(&counter_lock);
+
     pthread_exit(NULL);
 }
 
-/* thread function */
+/*
+* Brief: reducer_func is reducer thread function t
+*
+* Param: arg is a pointer of type red_thread_data_t
+* Returns: N/A
+*/
 void *reducer_func(void *arg) {
-    std::unordered_map<std::string, std::vector<word_info>> inverted_index; 
-    red_thread_data_t *data = (red_thread_data_t *)arg;
+
+    std::unordered_map<std::string, std::vector<word_info>> inverted_index;  // hash map to store the inverted index
     
-    while  (!(sync_counter == 0 && buffers.isEmpty() )){
-        printf("***************** reducer_func thread id: %d %d %d \n", data->tid, sync_counter,buffers.isEmpty()); 
-        data_t* pd = buffers.remove(&sync_counter);
-        if (pd == nullptr){
-            printf("***************** reducer_func nullptr thread id: %d %d\n", data->tid, sync_counter); 
-        } else {
-            printf("***************** reducer_func thread id: %d %s\n", data->tid, (pd->word).c_str()); 
+    red_thread_data_t *data = (red_thread_data_t *)arg;     // cast the argument
+    
+    /* loop while there is at leas one mapper thread or this reducer thread's buffer is not empty
+        isEmpty() function is not synchronized however this is not an issue. Since, there are only four cases:
+    1) (sync_counter == 0 && buffers[data->tid].isEmpty()== true ) then this reducer thread is done based 
+    on the program specification and the value of buffers[data->tid].isEmpty() can't change anymore (no race condition)
+    2) (sync_counter > 0 && buffers[data->tid].isEmpty()== true ) then this reducer thread needs to try to
+    consume at least one more time and 
+    3) (sync_counter == 0 && buffers[data->tid].isEmpty()== false ) 
+    4) (sync_counter > 0 && buffers[data->tid].isEmpty()== false ) 
+    */
+    while  (!(sync_counter == 0 && buffers[data->tid].isEmpty() )){
+        // printf("***************** reducer_func thread id: %d %d %d \n", data->tid, sync_counter,buffers[data->tid].isEmpty()); 
+        
+        std::unique_ptr<data_t> pd (buffers[data->tid].remove(&sync_counter)); // remove an element from the Buffer
+        if (pd != nullptr){     
+            // printf("***************** reducer_func thread id: %d %s\n", data->tid, (pd->word).c_str()); 
+            // add the consumed data to the inverted_index
             if (inverted_index.find(pd->word) == inverted_index.end()) { // not found
                 std::vector<word_info> vect;
                 vect.push_back(pd->wi);
                 inverted_index.insert(std::make_pair(pd->word,vect));
-            } else {
+            } else {    // found
                 inverted_index[pd->word].push_back(pd->wi);
             }
-            delete pd;
         }
     }
-    printf("***************** reducer_func thread id: %d DONE\n", data->tid); 
+    
+    // printing the inverted_index
+    // printf("***************** reducer_func thread id: %d DONE\n", data->tid); 
     for (std::unordered_map<std::string, std::vector<word_info>>::iterator it = inverted_index.begin(); it != inverted_index.end(); ++it ){
         std::string value;
         for(std::vector<word_info>::iterator vit = (it->second).begin(); vit != (it->second).end() ; ++vit){
             value += "("+(vit->file_name + ":") + std::to_string(vit->line_number) + ") ";
         }
-        printf("@@@@@ Results thread id: %d key:%s value:%s \n", data->tid,(it->first).c_str(),value.c_str());
+        printf("%s -> %s \n",(it->first).c_str(),value.c_str());
     }
     pthread_exit(NULL);
 }
 
 // main method - program entry point
 int main() {
-    char cmd[81]; // array of chars (a string)
-    char* fileNames[20]; // array of strings
-    int FILES;  // number of times to execute command
-    int MAPPERS; // number of times to execute command
-    int REDUCERS; // number of times to execute command
-
-    // begin parsing code - do not modify
-    printf("Files> ");
-    fgets(cmd, sizeof(cmd), stdin);
-    FILES = readCmdTokens(cmd, fileNames);
+    std::string cmd;    // string to hold the input line
+    int MAPPERS;        // number of mapper threads
+    int REDUCERS;       // number of mapper reducers
+    std::vector<std::string> fileNames; // vector to hold the file names 
     
+    ///////////////////////////////////////////////////////
+    /////////////////// Parsing Section ///////////////////
+    ///////////////////////////////////////////////////////
+
+    printf("Files> ");
+    getline( std::cin, cmd);
+    fileNames =readCmdTokens(cmd);
+    printf("Number Of Files:%d\n",fileNames.size());     
+
     do {
-        printf("  Mappers> ");
-        MAPPERS = readChar() - '0';
-    } while (MAPPERS <= 0 || MAPPERS != FILES);
+        std::cout <<"  Mappers> ";
+        std::cin >> MAPPERS;
+    } while (MAPPERS <= 0 || MAPPERS != fileNames.size());
     do {
-        printf("  Reducers> ");
-        REDUCERS = readChar() - '0';
+        std::cout <<"  Reducers> ";
+        std::cin >> REDUCERS;
     } while (REDUCERS <= 0);
 
-    
-    for (int i=0;i<FILES;i++){
-        printf("filename:%s\n",fileNames[i]); 
-    }
-    // end parsing code
 
+    // fileNames.push_back("files/file1.txt");
+    // fileNames.push_back("files/file2.txt");
+    // fileNames.push_back("files/file3.txt");
+    // fileNames.push_back("files/file4.txt");
+    // // fileNames.push_back("files/tmp.txt");
+    // MAPPERS = fileNames.size();
+    // REDUCERS = 10;
+
+    ///////////////////////////////////////////////////////
+    //////////////// Intialization Section ////////////////
+    ///////////////////////////////////////////////////////
 
     if (pthread_mutex_init(&counter_lock, NULL) != 0) {
         printf("\n mutex init failed\n");
         return 1;
     }
+    
     sync_counter = MAPPERS;
 
     for (int i = 0; i < REDUCERS; ++i) {
-        bufferss.push_back(Buffer<data_t>());
+        buffers.push_back(Buffer<data_t>(10));
     }
 
-    // Init Mappers
-    /* create a map_thread_data_t argument array */
+    // Initialize Mapper threads
+    // create a map_thread_data_t argument array
     map_thread_data_t mapper_data[MAPPERS];
     pthread_t mapper_thr[MAPPERS];
     int mrc;
 
-    /* create threads */
+    // create mapper threads 
     for (int i = 0; i < MAPPERS; ++i) {
         mapper_data[i].tid = i;
         mapper_data[i].file = fileNames[i];
@@ -128,13 +170,13 @@ int main() {
         }
     }
 
-    // Init Reducers
-    /* create a map_thread_data_t argument array */
+    // Init Reducer threads
+    // create a map_thread_data_t argument array 
     red_thread_data_t reducer_data[REDUCERS];
     pthread_t reducer_thr[REDUCERS];
     int rrc;
     
-    /* create threads */
+    // create reducer threads 
     for (int i = 0; i < REDUCERS; ++i) {
         reducer_data[i].tid = i;
 
@@ -144,16 +186,20 @@ int main() {
         }
     }
 
-    /* block until all threads complete */
+
+    ///////////////////////////////////////////////////////
+    /////////////////// Clean up Section //////////////////
+    ///////////////////////////////////////////////////////
+
+    /* block until all mapper threads complete */
     for (int i = 0; i < MAPPERS; ++i) {
         pthread_join(mapper_thr[i], NULL);
     }
     
-    /* block until all threads complete */
+    /* block until all reducer threads complete */
     for (int i = 0; i < REDUCERS; ++i) {
         pthread_join(reducer_thr[i], NULL);
     }
-
 
     pthread_mutex_destroy(&counter_lock);
 }
