@@ -8,6 +8,7 @@
 #include <vector> 
 #include <utility>      // std::pair, std::make_pair
 #include <iostream>
+#include "conditional_variable.hpp"
 
 
 /*
